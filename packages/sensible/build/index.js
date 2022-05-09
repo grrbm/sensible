@@ -325,12 +325,15 @@ var isCommandPerOs = function (command) {
 };
 var getCommand = function (command) {
     if (!command.command) {
+        console.log("[sensible]: ", "command returned false");
         return false;
     }
     if (isCommandPerOs(command.command)) {
         var cmd = command.command[os] || command.command.default;
+        console.log("[sensible]: ", "command returned ".concat(cmd));
         return cmd;
     }
+    console.log("[sensible]: ", "command returned ".concat(command.command));
     return command.command;
 };
 var executeCommand = function (command, dir, debug) {
@@ -342,7 +345,7 @@ var executeCommand = function (command, dir, debug) {
     }
     //tell the user what is happening, with a dot every second
     process.stdout.write(command.description);
-    var interval = setInterval(function () { return process.stdout.write("."); }, 1000);
+    var interval = setInterval(function () { return process.stdout.write("."); }, 5000);
     return new Promise(function (resolve) {
         var messages = [];
         var onFinish = function (_a) {
@@ -365,7 +368,11 @@ var executeCommand = function (command, dir, debug) {
                 return;
             }
             (0, child_process_1.spawn)(commandString, {
-                stdio: debug ? "inherit" : "ignore",
+                stdio: debug
+                    ? //to see the output from console inside spawned child,
+                        //set stdin, link stdout and stderr of child to current process
+                        [process.stdin, process.stdout, process.stderr]
+                    : "ignore",
                 shell: true,
                 cwd: dir,
             })
@@ -374,8 +381,10 @@ var executeCommand = function (command, dir, debug) {
                 var ALLOWED_ERRORS = [];
                 if (typeof command.command === "string" &&
                     command.command.includes("robocopy")) {
-                    //with robocopy, errors 1, 2 and 4 are not really errors;
-                    ALLOWED_ERRORS.push(1, 2, 4);
+                    //with robocopy,
+                    //An Exit Code of 0-7 is success and any value >= 8 indicates that
+                    //there was at least one failure during the copy operation.
+                    ALLOWED_ERRORS.push(0, 1, 2, 3, 4, 5, 6, 7);
                 }
                 if (typeof command.command === "string" &&
                     command.command.includes("rmdir")) {
@@ -389,8 +398,8 @@ var executeCommand = function (command, dir, debug) {
                 else {
                     onFinish({ success: false });
                     (0, util_log_1.log)(messages.join("\n"));
-                    (0, util_log_1.log)("The following command failed: \"".concat(command.command, " (code ").concat(code, ")\""));
-                    process.exit(1);
+                    (0, util_log_1.log)("The following command failed: \"".concat(command.command, " (code ").concat(code, ").\""));
+                    //process.exit(1);
                 }
             })
                 //save all output so it can be printed on an error
@@ -672,20 +681,24 @@ var getCommandsWithoutCache = function (_a) {
         var fileString = fs_1.default.existsSync(installFilePath)
             ? fs_1.default.readFileSync(installFilePath, { encoding: "utf8" })
             : "";
-        var appsCommands = fileString && fileString.length > 0
+        var appsInstallObject = fileString && fileString.length > 0
             ? JSON.parse(fileString)
             : { commands: [], tasks: [] };
-        var filledInAppCommands = appsCommands.commands.map(commandReplaceVariables({}));
+        var filledInAppCommands = appsInstallObject.commands.map(commandReplaceVariables({}));
+        console.log("[sensible]: " +
+            "these are the filled in app commands: " +
+            JSON.stringify(filledInAppCommands));
         var defaultAppsCommands = [
             {
                 //`cp -R ${sensibleDir}/templates/apps/${app}/. ${targetDir}/${appName}/apps/${app}`
                 command: copyCommandHelper[currentPlatformId]("".concat(sensibleDir, "/templates/apps/").concat(app, "/."), "".concat(targetDir, "/").concat(appName, "/apps/").concat(app)),
                 description: "Copying ".concat(app, " template"),
-                isDisabled: appsCommands.commands.length === 0,
+                isDisabled: appsInstallObject.commands.length === 0,
             },
         ];
         return {
-            dir: "".concat(targetDir, "/").concat(appName, "/apps"),
+            //`${targetDir}/${appName}/apps`,
+            dir: path_1.default.join(targetDir, appName, "apps"),
             commands: filledInAppCommands.concat(defaultAppsCommands),
         };
     }), true), [

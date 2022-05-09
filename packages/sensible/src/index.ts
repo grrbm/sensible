@@ -335,13 +335,16 @@ const isCommandPerOs = (
 
 const getCommand = (command: Command): string | false => {
   if (!command.command) {
+    console.log("[sensible]: ", `command returned false`);
     return false;
   }
 
   if (isCommandPerOs(command.command)) {
     const cmd = command.command[os] || command.command.default!;
+    console.log("[sensible]: ", `command returned ${cmd}`);
     return cmd;
   }
+  console.log("[sensible]: ", `command returned ${command.command}`);
   return command.command;
 };
 
@@ -354,7 +357,7 @@ const executeCommand = (command: Command, dir: string, debug: boolean) => {
   }
   //tell the user what is happening, with a dot every second
   process.stdout.write(command.description);
-  const interval = setInterval(() => process.stdout.write("."), 1000);
+  const interval = setInterval(() => process.stdout.write("."), 5000);
 
   return new Promise<void>((resolve) => {
     const messages: string[] = [];
@@ -380,7 +383,11 @@ const executeCommand = (command: Command, dir: string, debug: boolean) => {
       }
 
       spawn(commandString, {
-        stdio: debug ? "inherit" : "ignore",
+        stdio: debug
+          ? //to see the output from console inside spawned child,
+            //set stdin, link stdout and stderr of child to current process
+            [process.stdin, process.stdout, process.stderr]
+          : "ignore",
         shell: true,
         cwd: dir,
       })
@@ -391,8 +398,10 @@ const executeCommand = (command: Command, dir: string, debug: boolean) => {
             typeof command.command === "string" &&
             command.command.includes("robocopy")
           ) {
-            //with robocopy, errors 1, 2 and 4 are not really errors;
-            ALLOWED_ERRORS.push(1, 2, 4);
+            //with robocopy,
+            //An Exit Code of 0-7 is success and any value >= 8 indicates that
+            //there was at least one failure during the copy operation.
+            ALLOWED_ERRORS.push(0, 1, 2, 3, 4, 5, 6, 7);
           }
           if (
             typeof command.command === "string" &&
@@ -411,9 +420,9 @@ const executeCommand = (command: Command, dir: string, debug: boolean) => {
             log(messages.join("\n"));
 
             log(
-              `The following command failed: "${command.command} (code ${code})"`
+              `The following command failed: "${command.command} (code ${code})."`
             );
-            process.exit(1);
+            //process.exit(1);
           }
         })
         //save all output so it can be printed on an error
@@ -710,13 +719,18 @@ const getCommandsWithoutCache = ({
         ? fs.readFileSync(installFilePath, { encoding: "utf8" })
         : "";
 
-      const appsCommands: InstallObject =
+      const appsInstallObject: InstallObject =
         fileString && fileString.length > 0
           ? JSON.parse(fileString)
           : { commands: [], tasks: [] };
 
-      const filledInAppCommands = appsCommands.commands.map(
+      const filledInAppCommands = appsInstallObject.commands.map(
         commandReplaceVariables({})
+      );
+      console.log(
+        "[sensible]: " +
+          "these are the filled in app commands: " +
+          JSON.stringify(filledInAppCommands)
       );
 
       const defaultAppsCommands: Command[] = [
@@ -727,12 +741,13 @@ const getCommandsWithoutCache = ({
             `${targetDir}/${appName}/apps/${app}`
           ),
           description: `Copying ${app} template`,
-          isDisabled: appsCommands.commands.length === 0,
+          isDisabled: appsInstallObject.commands.length === 0,
         },
       ];
 
       return {
-        dir: `${targetDir}/${appName}/apps`,
+        //`${targetDir}/${appName}/apps`,
+        dir: path.join(targetDir, appName, "apps"),
         commands: filledInAppCommands.concat(defaultAppsCommands),
       };
     }),
